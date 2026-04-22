@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Binario compilado — regenerar con: make ref/librmrs.so
+ref/librmrs.so
+ref/*.o
+
+# OS
+.DS_Store
+Thumbs.db
