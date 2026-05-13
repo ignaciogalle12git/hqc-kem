@@ -1,20 +1,27 @@
 """
-Muestreo de vectores aleatorios para HQC.
+Fixed-weight vector sampling for HQC.
 
-Tenemos dos algoritmos de muestreo de peso fijo:
-  - sample_fixed_weight_keygen: para x e y en keygen (vect_sample_fixed_weight1)
-    Lee 3 bytes a la vez, reducción Barrett, rechazo de duplicados.
-  - sample_fixed_weight_encrypt: para r1, r2, e en cifrado (vect_sample_fixed_weight2)
-    Lee 4·omega bytes de golpe, soporte[i] = i + (rand32·(n-i)) >> 32,
-    más un paso de deduplicación.
+Two algorithms are provided:
 
+  sample_fixed_weight_keygen  -- for x and y in keygen (vect_generate_random_support1)
+    Reads 3 bytes at a time, interprets them as a 24-bit little-endian integer,
+    applies Barrett reduction mod n, and rejects candidates above the rejection
+    threshold to eliminate modular bias. Duplicate indices are also discarded.
+    Consumption from the XOF is variable, which is acceptable for long-lived
+    secret vectors where perfect uniformity is required.
+
+  sample_fixed_weight_encrypt -- for r1, r2, e in encrypt (vect_generate_random_support2)
+    Reads 4*omega bytes at once as uint32 values, computes
+    support[i] = i + (rand * (n - i)) >> 32 (partial Fisher-Yates shuffle),
+    then deduplicates. Introduces a negligible bias (< 0.2%), but consumes
+    a fixed number of XOF bytes, which is required for KAT reproducibility.
 """
 
 from .hash import XOF
 
 
 def sample_vect(n: int, xof: XOF) -> bytearray:
-    """Vector uniforme de n bits a partir de un XOF."""
+    """Return a uniformly random vector of n bits drawn from xof."""
     n_bytes = (n + 7) // 8
     raw = bytearray(xof.get_bytes(n_bytes))
     remainder = n % 8
@@ -24,7 +31,7 @@ def sample_vect(n: int, xof: XOF) -> bytearray:
 
 
 def _barrett_reduce(x: int, n: int, n_mu: int) -> int:
-    """Reducción modular de Barrett: devuelve x mod n."""
+    """Barrett modular reduction: return x mod n."""
     q = (x * n_mu) >> 32
     r = x - q * n
     if r >= n:
@@ -33,7 +40,7 @@ def _barrett_reduce(x: int, n: int, n_mu: int) -> int:
 
 
 def _support_to_vector(support: list[int], n: int) -> bytearray:
-    """Convierte una lista de índices de bits a un vector de bytes."""
+    """Convert a list of bit indices to a packed byte vector of n bits."""
     v = bytearray((n + 7) // 8)
     for p in support:
         v[p // 8] |= 1 << (p % 8)
@@ -42,17 +49,16 @@ def _support_to_vector(support: list[int], n: int) -> bytearray:
 
 def sample_fixed_weight_keygen(n: int, omega: int, xof: XOF) -> bytearray:
     """
-    Vector de n bits con exactamente omega unos para keygen (x, y).
-    Implementa vect_generate_random_support1: muestrea 3 bytes → valor 24-bit
-    little-endian → reducción Barrett → rechazo si duplicado.
+    Sample a vector of n bits with exactly omega ones for keygen (x, y).
+    Implements vect_generate_random_support1: reads 3 bytes as a 24-bit
+    little-endian integer, applies Barrett reduction mod n, and rejects
+    candidates at or above the rejection threshold to remove modular bias.
 
-    El umbral de rechazo se calcula sobre el dominio real del candidato
-    (24 bits = [0, 2^24)); es el mayor múltiplo de n que cabe en 2^24, lo que
-    elimina el sesgo residual de la reducción modular. Para n = 17669 vale
-    16767881, valor fijado como UTILS_REJECTION_THRESHOLD en ref/parameters.h.
+    The rejection threshold is the largest multiple of n that fits in 2^24,
+    equal to UTILS_REJECTION_THRESHOLD in ref/parameters.h (16767881 for
+    n=17669). The Barrett multiplier uses a 32-bit numerator even though
+    candidates are 24-bit values.
     """
-    # n_mu es el multiplicador Barrett (numerador 2^32): aunque el candidato
-    # viva en 24 bits, _barrett_reduce desplaza 32 bits tras multiplicar.
     n_mu = 2**32 // n
     rejection_threshold = (1 << 24) - ((1 << 24) % n)
 
@@ -60,7 +66,7 @@ def sample_fixed_weight_keygen(n: int, omega: int, xof: XOF) -> bytearray:
     support_set = set()
     while len(support) < omega:
         b = xof.get_bytes(3)
-        candidate = b[0] | (b[1] << 8) | (b[2] << 16)   # 24 bits little-endian
+        candidate = b[0] | (b[1] << 8) | (b[2] << 16)
         if candidate >= rejection_threshold:
             continue
         idx = _barrett_reduce(candidate, n, n_mu)
@@ -73,9 +79,11 @@ def sample_fixed_weight_keygen(n: int, omega: int, xof: XOF) -> bytearray:
 
 def sample_fixed_weight_encrypt(n: int, omega: int, xof: XOF) -> bytearray:
     """
-    Vector de n bits con exactamente omega unos para cifrado (r1, r2, e).
-    Implementa vect_generate_random_support2: lee 4*omega bytes como uint32_t
-    little-endian, soporte[i] = i + (rand * (n-i)) >> 32, y deduplicación.
+    Sample a vector of n bits with exactly omega ones for encrypt (r1, r2, e).
+    Implements vect_generate_random_support2: reads 4*omega bytes as uint32
+    little-endian values, computes support[i] = i + (rand * (n-i)) >> 32
+    (Algorithm 5 from Sendrier 2021), then deduplicates by replacing any
+    repeated index at position i with i itself.
     """
     raw = xof.get_bytes(4 * omega)
     rand_u32 = [
@@ -85,14 +93,10 @@ def sample_fixed_weight_encrypt(n: int, omega: int, xof: XOF) -> bytearray:
 
     support = [0] * omega
     for i in range(omega):
-        buff = rand_u32[i]
-        support[i] = i + ((buff * (n - i)) >> 32)
+        support[i] = i + ((rand_u32[i] * (n - i)) >> 32)
 
-    # Deduplicación: para cada i de omega-2 a 0, si support[i] ya aparece
-    # en support[i+1..omega-1], se reemplaza por i.
     for i in range(omega - 2, -1, -1):
-        found = any(support[j] == support[i] for j in range(i + 1, omega))
-        if found:
+        if any(support[j] == support[i] for j in range(i + 1, omega)):
             support[i] = i
 
     return _support_to_vector(support, n)

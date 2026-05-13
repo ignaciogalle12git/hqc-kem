@@ -7,24 +7,23 @@ def set_bit(v: bytearray, i: int) -> None:
 
 
 def poly_add(a: bytearray, b: bytearray) -> bytearray:
-    # Suma en F2 (XOR bit a bit). Se exige misma longitud para evitar que
-    # `zip` trunque silenciosamente cuando un operando es más corto por error
-    # (p.ej. olvidar rellenar con ceros tras un truncate).
+    # Addition in F2 is XOR. Equal lengths are enforced to catch silent
+    # truncation from zip when an operand is shorter than expected.
     if len(a) != len(b):
-        raise ValueError(f"poly_add: longitudes distintas ({len(a)} != {len(b)})")
+        raise ValueError(f"poly_add: length mismatch ({len(a)} != {len(b)})")
     return bytearray(x ^ y for x, y in zip(a, b))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Multiplicación naive  —  O(n²) operaciones de bit
+# Naive multiplication  --  O(n^2) bit operations
 # ──────────────────────────────────────────────────────────────────────────────
 
 def poly_mul(a: bytearray, b: bytearray, n: int) -> bytearray:
     """
-    a * b mod (x^n - 1) en F2[x]  —  algoritmo naive O(n²).
+    Compute a * b mod (x^n - 1) in F2[x]  --  naive O(n^2) algorithm.
 
-    Para cada bit i de a que sea 1, XOR en el resultado b rotado i posiciones.
-    Sencillo y auditable; demasiado lento para n=17669 en Python (~270 ms/llamada).
+    For each active bit i of a, XOR b rotated by i positions into the result.
+    Readable and easy to audit; too slow for n=17669 in Python (~270 ms/call).
     """
     res = bytearray((n + 7) // 8)
     for i in range(n):
@@ -37,17 +36,17 @@ def poly_mul(a: bytearray, b: bytearray, n: int) -> bytearray:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Multiplicación Karatsuba  —  O(n^1.58) operaciones de palabra de 64 bits
-# Equivalente al algoritmo de gf2x.c del código C de referencia HQC (PQClean).
-# Referencia: https://github.com/PQClean/PQClean/blob/master/crypto_kem/hqc-128/clean/gf2x.c
+# Karatsuba multiplication  --  O(n^1.58) 64-bit word operations
+# Equivalent to the algorithm in gf2x.c from the HQC reference (PQClean).
+# Reference: https://github.com/PQClean/PQClean/blob/master/crypto_kem/hqc-128/clean/gf2x.c
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _base_mul(a: int, b: int) -> int:
     """
-    Carry-less multiply de dos palabras de 64 bits → resultado de 128 bits.
-    Equivalente a base_mul() de gf2x.c (algoritmo mul1, INRIA 2006).
-    En C se hace con una tabla de 4 bits; en Python la aritmética entera
-    nativa permite el mismo bucle sin necesidad de tabla.
+    Carry-less multiply of two 64-bit words, returning a 128-bit result.
+    Equivalent to base_mul() in gf2x.c (mul1 algorithm, INRIA 2006).
+    The C version uses a 4-bit lookup table; Python native integers allow
+    the same loop without a table.
     """
     a &= 0xFFFFFFFFFFFFFFFF
     b &= 0xFFFFFFFFFFFFFFFF
@@ -62,16 +61,16 @@ def _base_mul(a: int, b: int) -> int:
 
 def _karatsuba(a: int, b: int, size: int) -> int:
     """
-    Karatsuba carry-less sobre bloques de `size` palabras de 64 bits.
-    a y b son enteros Python (bit i = coeficiente de x^i).
-    Devuelve un entero de 2*size*64 bits.
-    Refleja exactamente la función karatsuba() de gf2x.c.
+    Recursive carry-less Karatsuba over blocks of `size` 64-bit words.
+    a and b are Python integers (bit i is the coefficient of x^i).
+    Returns an integer of 2*size*64 bits.
+    Mirrors karatsuba() in gf2x.c exactly.
     """
     if size == 1:
         return _base_mul(a, b)
 
-    size_l = (size + 1) // 2   # palabras en la mitad baja (redondeada arriba)
-    size_h = size // 2          # palabras en la mitad alta
+    size_l = (size + 1) // 2   # words in the low half (rounded up)
+    size_h = size // 2          # words in the high half
 
     bits_l = size_l * 64
     mask_l = (1 << bits_l) - 1
@@ -87,7 +86,8 @@ def _karatsuba(a: int, b: int, size: int) -> int:
 
 
 def _reduce_mod(x: int, n: int) -> int:
-    """Reduce x mod (x^n - 1) en F2[x]: los coeficientes >= n se suman mod n."""
+    """Reduce x mod (x^n - 1) in F2[x]: fold coefficients at positions >= n
+    back by adding them at position (pos mod n)."""
     result = x & ((1 << n) - 1)
     x >>= n
     pos = 0
@@ -101,17 +101,16 @@ def _reduce_mod(x: int, n: int) -> int:
 
 def poly_mul_karatsuba(a: bytearray, b: bytearray, n: int) -> bytearray:
     """
-    a * b mod (x^n - 1) en F2[x]  —  Karatsuba O(n^1.58).
+    Compute a * b mod (x^n - 1) in F2[x]  --  Karatsuba O(n^1.58).
 
-    Implementa el mismo algoritmo que vect_mul() + karatsuba() + base_mul()
-    de gf2x.c en el código C de referencia HQC (PQClean/hqc-128/clean).
-    La principal diferencia con el código C es que aquí se trabaja con
-    enteros Python arbitrarios en lugar de arrays de uint64_t, por lo que
-    no se alcanza la misma velocidad pero sí la misma complejidad asintótica.
+    Implements the same algorithm as vect_mul() + karatsuba() + base_mul()
+    in gf2x.c from the HQC reference (PQClean/hqc-128/clean). The key
+    difference is that this version operates on arbitrary-precision Python
+    integers instead of uint64_t arrays, giving the same asymptotic complexity
+    with a larger constant overhead.
 
-    En Python el speedup real frente al naive es ~2.7× (el overhead del
-    intérprete domina sobre la mejora algorítmica). En C, el mismo algoritmo
-    es ~3000× más rápido que el naive Python.
+    In Python the real speedup over naive is ~2.9x because interpreter overhead
+    dominates the algorithmic gain. The equivalent C code is ~3000x faster.
     """
     n64 = (n + 63) // 64
     a_int = int.from_bytes(a, 'little')
@@ -125,7 +124,7 @@ def poly_mul_karatsuba(a: bytearray, b: bytearray, n: int) -> bytearray:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def poly_truncate(v: bytearray, n: int, n1n2: int) -> bytearray:
-    """Descarta los (n - n1n2) bits más significativos, conserva los n1n2 primeros."""
+    """Zero out bits from position n1n2 to n-1, keeping only the n1n2 low bits."""
     result = bytearray(v)
     for i in range(n1n2, n):
         result[i // 8] &= ~(1 << (i % 8))
