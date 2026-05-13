@@ -1,7 +1,7 @@
 from .params import HQCParams
 from .hash import I, XOF
 from .sampling import sample_vect, sample_fixed_weight_keygen, sample_fixed_weight_encrypt
-from .poly import poly_add, poly_mul, poly_truncate
+from .poly import poly_add, poly_mul_karatsuba as poly_mul, poly_mul as poly_mul_naive, poly_truncate  # noqa: F401
 
 
 def pke_keygen(seed_pke: bytes, p: HQCParams) -> tuple[bytes, bytes]:
@@ -9,6 +9,15 @@ def pke_keygen(seed_pke: bytes, p: HQCParams) -> tuple[bytes, bytes]:
     Devuelve (ek, dk_pke).
     ek  = seed_ek (32B) || s (n_bytes)
     dk  = seed_dk (32B)
+    """
+    ek, dk, _x, _y, _h, _s = _pke_keygen_internal(seed_pke, p)
+    return ek, dk
+
+
+def _pke_keygen_internal(seed_pke: bytes, p: HQCParams):
+    """
+    Variante interna de pke_keygen que expone los vectores intermedios
+    (x, y, h, s) para tests estructurales (verificación de la instancia 2-QCSD).
     """
     seed_dk, seed_ek = I(seed_pke)
 
@@ -24,12 +33,21 @@ def pke_keygen(seed_pke: bytes, p: HQCParams) -> tuple[bytes, bytes]:
 
     ek = seed_ek + bytes(s)
     dk = seed_dk
-    return ek, dk
+    return ek, dk, x, y, h, s
 
 
 def pke_encrypt(ek: bytes, m: bytes, theta: bytes, p: HQCParams) -> bytes:
     """
     Devuelve c_pke = u (n_bytes) || v (n1n2_bytes)
+    """
+    u, v, _r1, _r2, _e = _pke_encrypt_internal(ek, m, theta, p)
+    return bytes(u) + bytes(v)
+
+
+def _pke_encrypt_internal(ek: bytes, m: bytes, theta: bytes, p: HQCParams):
+    """
+    Variante interna de pke_encrypt que expone los vectores intermedios
+    (r1, r2, e) y devuelve u, v por separado (verificación 3-DQCSD-PT).
     """
     from .rmrs import encode as rmrs_encode
 
@@ -52,11 +70,9 @@ def pke_encrypt(ek: bytes, m: bytes, theta: bytes, p: HQCParams) -> bytes:
 
     sr2_e = poly_add(poly_mul(s, r2, p.n), e)
     sr2_e_trunc = poly_truncate(sr2_e, p.n, p.n1 * p.n2)
-    # v vive en n1*n2 bits: recortamos el byte sobrante (ya en cero tras truncate)
-    # antes de sumar con m_bits para que poly_add pueda validar longitudes.
     v = poly_add(m_bits, bytearray(sr2_e_trunc[:p.n1n2_bytes]))
 
-    return bytes(u) + bytes(v)
+    return u, v, r1, r2, e
 
 
 def pke_decrypt(dk: bytes, c_pke: bytes, p: HQCParams) -> bytes | None:
