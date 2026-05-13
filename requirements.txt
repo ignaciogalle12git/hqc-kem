@@ -1,0 +1,6 @@
+# No third-party runtime dependencies.
+# The implementation only uses the Python standard library (hashlib, ctypes,
+# dataclasses, os) and the compiled C decoder ref/librmrs.so.
+#
+# Development-only dependency:
+pytest
