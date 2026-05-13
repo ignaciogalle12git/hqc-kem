@@ -1,16 +1,15 @@
 """
-Benchmark y verificación de los dos algoritmos de multiplicación de polinomios.
+Benchmark and correctness check for the two polynomial multiplication algorithms.
 
-Uso:
-    python bench_poly_mul.py          # benchmark rápido (1 muestra)
-    python bench_poly_mul.py --full   # benchmark estadístico (5 muestras x 3 reps)
+Usage:
+    python bench_poly_mul.py          # quick benchmark (1 sample)
+    python bench_poly_mul.py --full   # statistical benchmark (5 rounds x 3 reps)
 
-Algoritmos comparados
-─────────────────────
-  naive      poly_mul()           O(n²)     — legible, lento
-  karatsuba  poly_mul_karatsuba() O(n^1.58) — equivalente al gf2x.c de la ref C
+Algorithms compared:
+  naive      poly_mul()           O(n^2)    -- readable, slow
+  karatsuba  poly_mul_karatsuba() O(n^1.58) -- equivalent to gf2x.c from the C reference
 
-Referencia del algoritmo Karatsuba:
+Reference for the Karatsuba implementation:
   PQClean/crypto_kem/hqc-128/clean/gf2x.c
   https://github.com/PQClean/PQClean
 """
@@ -27,26 +26,22 @@ from hqc.params import HQC1
 from hqc.poly import poly_mul, poly_mul_karatsuba
 from hqc.sampling import sample_fixed_weight_encrypt, sample_fixed_weight_keygen, sample_vect
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Casos representativos de multiplicación en HQC
-# ─────────────────────────────────────────────────────────────────────────────
 
 def make_vectors(n, omega, omega_r):
-    y  = sample_fixed_weight_keygen(n, omega,   XOF(os.urandom(32)))  # disperso (keygen)
-    r2 = sample_fixed_weight_encrypt(n, omega_r, XOF(os.urandom(32))) # disperso (encrypt)
-    h  = sample_vect(n, XOF(os.urandom(32)))                          # denso uniforme
-    s  = sample_vect(n, XOF(os.urandom(32)))                          # denso (≈ x + h·y)
+    y  = sample_fixed_weight_keygen(n, omega,   XOF(os.urandom(32)))
+    r2 = sample_fixed_weight_encrypt(n, omega_r, XOF(os.urandom(32)))
+    h  = sample_vect(n, XOF(os.urandom(32)))
+    s  = sample_vect(n, XOF(os.urandom(32)))
     return y, r2, h, s
 
 
 CASES = [
-    ("h·y   (keygen,   disperso×denso, ω=66)",  "y",  "h"),
-    ("h·r₂  (encrypt,  disperso×denso, ω=75)",  "r2", "h"),
-    ("s·r₂  (encrypt,  disperso×denso, ω=75)",  "r2", "s"),
-    ("u·y   (decrypt,  disperso×denso, ω=66)",  "y",  "s"),
+    ("h*y   (keygen,  sparse x dense, w=66)",  "y",  "h"),
+    ("h*r2  (encrypt, sparse x dense, w=75)",  "r2", "h"),
+    ("s*r2  (encrypt, sparse x dense, w=75)",  "r2", "s"),
+    ("u*y   (decrypt, sparse x dense, w=66)",  "y",  "s"),
 ]
 
-# ─────────────────────────────────────────────────────────────────────────────
 
 def run_benchmark(full: bool):
     n, omega, omega_r = HQC1.n, HQC1.omega, HQC1.omega_r
@@ -57,20 +52,19 @@ def run_benchmark(full: bool):
     vecs = {"y": y, "r2": r2, "h": h, "s": s}
 
     print(f"\n{'─'*70}")
-    print(f"  HQC-1  n={n}  ω={omega}  ωᵣ={omega_r}")
-    print(f"  {'rounds':>6} × {'reps':>4}  →  {'naive (ms)':>12}  {'karatsuba (ms)':>16}  {'speedup':>8}")
+    print(f"  HQC-1  n={n}  w={omega}  wr={omega_r}")
+    print(f"  {'rounds':>6} x {'reps':>4}  ->  {'naive (ms)':>12}  {'karatsuba (ms)':>16}  {'speedup':>8}")
     print(f"{'─'*70}")
 
-    # Verificación de corrección primero
     errors = 0
     for label, va, vb in CASES:
         ref = poly_mul(vecs[va], vecs[vb], n)
         got = poly_mul_karatsuba(vecs[va], vecs[vb], n)
         if ref != got:
-            print(f"  ERROR corrección: {label}")
+            print(f"  ERROR: {label}")
             errors += 1
     if errors == 0:
-        print(f"  Corrección verificada: naive == karatsuba en los {len(CASES)} casos ✓")
+        print(f"  Correctness verified: naive == karatsuba on all {len(CASES)} cases")
     print(f"{'─'*70}")
 
     total_naive = total_karat = 0.0
@@ -89,22 +83,22 @@ def run_benchmark(full: bool):
         mk = min(times_karat)
         total_naive += mn
         total_karat += mk
-        print(f"  {label:<42}  {mn:>10.1f}  {mk:>14.1f}  {mn/mk:>7.1f}×")
+        print(f"  {label:<42}  {mn:>10.1f}  {mk:>14.1f}  {mn/mk:>7.1f}x")
 
     print(f"{'─'*70}")
-    print(f"  {'TOTAL (4 formas distintas, 6 muls/ciclo KEM)':>42}  {total_naive:>10.1f}  {total_karat:>14.1f}  {total_naive/total_karat:>7.1f}×")
+    print(f"  {'TOTAL (4 distinct forms, 6 muls/KEM cycle)':>42}  {total_naive:>10.1f}  {total_karat:>14.1f}  {total_naive/total_karat:>7.1f}x")
     print(f"{'─'*70}")
     print()
-    print("  Nota: el código C de referencia (PQClean gf2x.c) usa el mismo")
-    print("  algoritmo Karatsuba sobre uint64_t; en C el speedup frente al")
-    print("  naive Python es ~3000×. En Python el overhead del intérprete")
-    print("  domina y el speedup real es ~2-3×.")
+    print("  Note: the C reference (PQClean gf2x.c) uses the same Karatsuba")
+    print("  algorithm over uint64_t; in C the speedup over naive Python is")
+    print("  ~3000x. In Python the interpreter overhead dominates and the")
+    print("  real speedup is ~2-3x.")
     print()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--full", action="store_true",
-                        help="Benchmark estadístico (5 rondas × 3 repeticiones)")
+                        help="Statistical benchmark (5 rounds x 3 reps)")
     args = parser.parse_args()
     run_benchmark(full=args.full)

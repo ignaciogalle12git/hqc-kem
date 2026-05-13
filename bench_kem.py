@@ -1,22 +1,21 @@
 """
-Benchmark de las tres operaciones del KEM HQC-1: KeyGen, Encaps, Decaps.
+Benchmark for the three HQC-1 KEM operations: KeyGen, Encaps, Decaps.
 
-Uso:
-    python bench_kem.py             # benchmark rapido  (10 iteraciones)
-    python bench_kem.py --full      # benchmark estadistico (50 iteraciones)
+Usage:
+    python bench_kem.py             # quick benchmark  (10 iterations)
+    python bench_kem.py --full      # statistical benchmark (50 iterations)
 
-Los tiempos se reportan en milisegundos (mediana, min, max).  La columna
-final convierte el tiempo medido a kciclos asumiendo la frecuencia de
-reloj del procesador (--cpu-mhz, por defecto 3000 MHz) para permitir
-una comparacion orientativa con los datos publicados en kciclos por la
-especificacion HQC y el informe NIST IR 8545.
+Times are reported in milliseconds (median, min, max). The last column
+converts the measured time to kcycles assuming the processor clock frequency
+(--cpu-mhz, default 3000 MHz) for an indicative comparison with the kcycle
+figures published in the HQC specification and NIST IR 8545.
 
-Nota: las medidas en Python no son comparables 1:1 con C porque incluyen
-el overhead del interprete; el objetivo es cuantificar el orden de
-magnitud, no establecer rendimiento absoluto.
+Note: Python measurements are not directly comparable with C because they
+include interpreter overhead. The goal is to quantify the order of magnitude,
+not to establish absolute performance figures.
 
-Salida destinada a:
-    capitulos/07_Pruebas.tex, tabla tab:comparativa_tiempos
+Output intended for use in:
+    capitulos/07_Pruebas.tex, table tab:comparativa_tiempos
 """
 
 import argparse
@@ -32,7 +31,7 @@ from hqc.kem import kem_keygen, kem_encaps, kem_decaps
 
 
 def _bench(fn, n_iters: int) -> list[float]:
-    """Ejecuta fn() n_iters veces y devuelve la lista de tiempos en ms."""
+    """Run fn() n_iters times and return elapsed times in ms."""
     times = []
     for _ in range(n_iters):
         t0 = time.perf_counter()
@@ -43,7 +42,7 @@ def _bench(fn, n_iters: int) -> list[float]:
 
 
 def _stats(times: list[float]) -> tuple[float, float, float]:
-    """Devuelve (median, min, max) en ms."""
+    """Return (median, min, max) in ms."""
     return statistics.median(times), min(times), max(times)
 
 
@@ -52,52 +51,44 @@ def run_benchmark(n_iters: int, cpu_mhz: float):
 
     print(f"\n{'='*78}")
     print(f"  HQC-1  n={p.n}  k={p.k}  omega={p.omega}  omega_r={p.omega_r}")
-    print(f"  iteraciones={n_iters}   CPU={cpu_mhz} MHz (para conversion a kciclos)")
+    print(f"  iterations={n_iters}   CPU={cpu_mhz} MHz (for kcycle conversion)")
     print(f"{'='*78}")
-    print(f"  {'Operacion':<10} {'mediana (ms)':>14} {'min (ms)':>10} {'max (ms)':>10} {'~kciclos':>12}")
+    print(f"  {'Operation':<10} {'median (ms)':>14} {'min (ms)':>10} {'max (ms)':>10} {'~kcycles':>12}")
     print(f"  {'-'*10} {'-'*14} {'-'*10} {'-'*10} {'-'*12}")
 
-    # --- KeyGen --------------------------------------------------------------
     keygen_times = _bench(lambda: kem_keygen(p), n_iters)
     med, mn, mx = _stats(keygen_times)
-    kcyc_kg = med * cpu_mhz
-    print(f"  {'KeyGen':<10} {med:>14.2f} {mn:>10.2f} {mx:>10.2f} {kcyc_kg:>12,.0f}")
+    print(f"  {'KeyGen':<10} {med:>14.2f} {mn:>10.2f} {mx:>10.2f} {med*cpu_mhz:>12,.0f}")
 
-    # Generar un par de claves de referencia para los benchmarks de encaps/decaps
     ek, dk = kem_keygen(p)
 
-    # --- Encaps --------------------------------------------------------------
     encaps_times = _bench(lambda: kem_encaps(ek, p), n_iters)
     med, mn, mx = _stats(encaps_times)
-    kcyc_en = med * cpu_mhz
-    print(f"  {'Encaps':<10} {med:>14.2f} {mn:>10.2f} {mx:>10.2f} {kcyc_en:>12,.0f}")
+    print(f"  {'Encaps':<10} {med:>14.2f} {mn:>10.2f} {mx:>10.2f} {med*cpu_mhz:>12,.0f}")
 
-    # Generar un ciphertext de referencia
     _, ct = kem_encaps(ek, p)
 
-    # --- Decaps --------------------------------------------------------------
     decaps_times = _bench(lambda: kem_decaps(dk, ct, p), n_iters)
     med, mn, mx = _stats(decaps_times)
-    kcyc_de = med * cpu_mhz
-    print(f"  {'Decaps':<10} {med:>14.2f} {mn:>10.2f} {mx:>10.2f} {kcyc_de:>12,.0f}")
+    print(f"  {'Decaps':<10} {med:>14.2f} {mn:>10.2f} {mx:>10.2f} {med*cpu_mhz:>12,.0f}")
 
     print(f"{'='*78}")
     print()
-    print("  Referencias publicadas para HQC-1 (kciclos):")
-    print(f"  - C clean (HQC spec, tabla 7):   KeyGen=4,557   Encaps=9,116   Decaps=13,918")
-    print(f"  - C avx2  (HQC spec, tabla 8):   KeyGen=   76   Encaps=  150   Decaps=   353")
-    print(f"  - NIST IR 8545           :       KeyGen=  105   Encaps=  197   Decaps=  360")
+    print("  Published reference figures for HQC-1 (kcycles):")
+    print(f"  C clean (HQC spec, table 7):  KeyGen=4,557   Encaps=9,116   Decaps=13,918")
+    print(f"  C avx2  (HQC spec, table 8):  KeyGen=   76   Encaps=  150   Decaps=   353")
+    print(f"  NIST IR 8545:                 KeyGen=  105   Encaps=  197   Decaps=   360")
     print()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--full", action="store_true",
-                        help="Benchmark estadistico (50 iteraciones; ~varios minutos)")
+                        help="Statistical benchmark (50 iterations, several minutes)")
     parser.add_argument("--iters", type=int, default=None,
-                        help="Numero de iteraciones (sobreescribe --full)")
+                        help="Number of iterations (overrides --full)")
     parser.add_argument("--cpu-mhz", type=float, default=3000.0,
-                        help="Frecuencia de la CPU en MHz para convertir ms a kciclos (default: 3000)")
+                        help="CPU frequency in MHz for kcycle conversion (default: 3000)")
     args = parser.parse_args()
 
     if args.iters is not None:

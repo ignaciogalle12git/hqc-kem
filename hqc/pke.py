@@ -6,9 +6,9 @@ from .poly import poly_add, poly_mul_karatsuba as poly_mul, poly_mul as poly_mul
 
 def pke_keygen(seed_pke: bytes, p: HQCParams) -> tuple[bytes, bytes]:
     """
-    Devuelve (ek, dk_pke).
-    ek  = seed_ek (32B) || s (n_bytes)
-    dk  = seed_dk (32B)
+    Return (ek, dk_pke).
+    ek  = seed_ek (32 B) || s (n_bytes)
+    dk  = seed_dk (32 B)
     """
     ek, dk, _x, _y, _h, _s = _pke_keygen_internal(seed_pke, p)
     return ek, dk
@@ -16,17 +16,17 @@ def pke_keygen(seed_pke: bytes, p: HQCParams) -> tuple[bytes, bytes]:
 
 def _pke_keygen_internal(seed_pke: bytes, p: HQCParams):
     """
-    Variante interna de pke_keygen que expone los vectores intermedios
-    (x, y, h, s) para tests estructurales (verificación de la instancia 2-QCSD).
+    Internal variant of pke_keygen that also returns the intermediate vectors
+    x, y, h, s for structural correctness tests (2-QCSD instance check).
     """
     seed_dk, seed_ek = I(seed_pke)
 
-    # Clave privada: y se muestrea ANTES que x (orden de la spec)
+    # y is sampled before x as required by the specification; this ordering
+    # also enables hardware optimisations (Antognazza et al. 2024).
     ctx_dk = XOF(seed_dk)
     y = sample_fixed_weight_keygen(p.n, p.omega, ctx_dk)
     x = sample_fixed_weight_keygen(p.n, p.omega, ctx_dk)
 
-    # Clave pública
     ctx_ek = XOF(seed_ek)
     h = sample_vect(p.n, ctx_ek)
     s = poly_add(x, poly_mul(h, y, p.n))
@@ -37,17 +37,16 @@ def _pke_keygen_internal(seed_pke: bytes, p: HQCParams):
 
 
 def pke_encrypt(ek: bytes, m: bytes, theta: bytes, p: HQCParams) -> bytes:
-    """
-    Devuelve c_pke = u (n_bytes) || v (n1n2_bytes)
-    """
+    """Return c_pke = u (n_bytes) || v (n1n2_bytes)."""
     u, v, _r1, _r2, _e = _pke_encrypt_internal(ek, m, theta, p)
     return bytes(u) + bytes(v)
 
 
 def _pke_encrypt_internal(ek: bytes, m: bytes, theta: bytes, p: HQCParams):
     """
-    Variante interna de pke_encrypt que expone los vectores intermedios
-    (r1, r2, e) y devuelve u, v por separado (verificación 3-DQCSD-PT).
+    Internal variant of pke_encrypt that also returns the intermediate vectors
+    r1, r2, e and the separated outputs u, v for structural correctness tests
+    (3-DQCSD-PT instance check).
     """
     from .rmrs import encode as rmrs_encode
 
@@ -57,7 +56,7 @@ def _pke_encrypt_internal(ek: bytes, m: bytes, theta: bytes, p: HQCParams):
     ctx_ek = XOF(seed_ek)
     h = sample_vect(p.n, ctx_ek)
 
-    # Orden obligatorio: r2, e, r1
+    # Mandatory sampling order for KAT reproducibility: r2, e, r1.
     ctx_theta = XOF(theta)
     r2 = sample_fixed_weight_encrypt(p.n, p.omega_r, ctx_theta)
     e  = sample_fixed_weight_encrypt(p.n, p.omega_e, ctx_theta)
@@ -76,22 +75,19 @@ def _pke_encrypt_internal(ek: bytes, m: bytes, theta: bytes, p: HQCParams):
 
 
 def pke_decrypt(dk: bytes, c_pke: bytes, p: HQCParams) -> bytes | None:
-    """
-    Devuelve m recuperado, o None si el decoder falla.
-    """
+    """Return the recovered message, or None if the decoder fails."""
     from .rmrs import decode as rmrs_decode
 
     seed_dk = dk[:p.seed_bytes]
 
     ctx_dk = XOF(seed_dk)
     y = sample_fixed_weight_keygen(p.n, p.omega, ctx_dk)
-    # x no se usa en decrypt
+    # x is not used in decryption
 
     u = bytearray(c_pke[:p.n_bytes])
     v = bytearray(c_pke[p.n_bytes:p.n_bytes + p.n1n2_bytes])
 
     uy = poly_truncate(poly_mul(u, y, p.n), p.n, p.n1 * p.n2)
-    # v vive en n1*n2 bits; recortamos el byte sobrante de uy (ya en cero)
     v_prime = poly_add(v, bytearray(uy[:p.n1n2_bytes]))
 
     m_recovered = rmrs_decode(bytes(v_prime), p.k // 8)
