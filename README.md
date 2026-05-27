@@ -1,15 +1,15 @@
 # hqc-kem
 
-Python 3.10+ reference implementation of HQC-KEM (Hamming Quasi-Cyclic Key
+Python 3.10+ reference implementation of **HQC-KEM** (Hamming Quasi-Cyclic Key
 Encapsulation Mechanism), a code-based post-quantum KEM selected by NIST in
 2025 as a standard complementary to lattice-based schemes.
 
-Developed as a Bachelor's Thesis (TFG) at Universidad de Murcia. The goal is
-a readable, auditable implementation that maps directly to the pseudocode in
-the official specification rather than competing with the C reference in
-performance.
+Developed as a Bachelor's Thesis (TFG) at Universidad de Granada. The primary
+goal is a readable, auditable implementation that maps directly to the
+pseudocode in the official specification — not to compete with the C reference
+on performance.
 
-Official specification: https://pqc-hqc.org
+Official specification: <https://pqc-hqc.org>
 
 ---
 
@@ -17,12 +17,12 @@ Official specification: https://pqc-hqc.org
 
 ```
 hqc/
-  params.py      HQC-1 parameter set and derived sizes
+  params.py      HQC-1 parameter set and derived constants
   hash.py        Hash functions G, H, I, J and XOF (SHAKE256)
-  sampling.py    Fixed-weight vector samplers for keygen and encrypt
-  poly.py        Polynomial arithmetic: naive O(n^2) and Karatsuba O(n^1.58)
+  sampling.py    Fixed-weight vector samplers for key generation and encryption
+  poly.py        Polynomial arithmetic: naive O(n²) and Karatsuba O(n^1.58)
   pke.py         Underlying IND-CPA PKE scheme
-  kem.py         Full IND-CCA2 KEM with Fujisaki-Okamoto transform
+  kem.py         IND-CCA2 KEM with Fujisaki–Okamoto transform
   rmrs.py        ctypes wrapper around the reference C decoder
   drbg.py        SHAKE256 NIST DRBG used by the KAT framework
 ref/
@@ -41,8 +41,8 @@ bench_kem.py        KeyGen / Encaps / Decaps wall-time benchmark
 
 ## Installation
 
-Python 3.10 or later is required. The only runtime dependency is a compiled
-C shared library built from the reference decoder sources.
+Python 3.10 or later is required. The only runtime dependency is the RMRS
+shared library, built from the bundled C sources:
 
 ```bash
 make ref/librmrs.so
@@ -58,7 +58,7 @@ pip install pytest
 
 ## Usage
 
-### Running the test suite
+### Test suite
 
 ```bash
 make test                  # all tests (unit + KAT)
@@ -67,50 +67,49 @@ pytest -m slow             # end-to-end and structural tests only
 KAT_N=3 pytest tests/      # run only the first 3 KAT vectors
 ```
 
-KAT tests are skipped automatically if `kat/PQCkemKAT_2321.rsp` is absent.
+KAT tests are skipped automatically when `kat/PQCkemKAT_2321.rsp` is absent.
 
-### Running benchmarks
+### Benchmarks
 
 ```bash
-make bench          # quick poly-mul benchmark (1 sample)
-make bench-full     # statistical poly-mul benchmark (5 rounds x 3 reps)
-make bench-kem      # quick KEM benchmark (10 iterations)
-make bench-kem-full # statistical KEM benchmark (50 iterations)
+make bench            # poly-mul benchmark (1 sample)
+make bench-full       # poly-mul benchmark (5 rounds × 3 reps)
+make bench-kem        # KEM benchmark (10 iterations)
+make bench-kem-full   # KEM benchmark (50 iterations)
 ```
 
 ---
 
 ## Implementation notes
 
-**Polynomial multiplication.** The dominant operation in HQC is
-multiplication in F2[x]/(x^n - 1). Two algorithms are provided: a naive
-O(n^2) implementation for readability and cross-validation, and a Karatsuba
-O(n^1.58) implementation equivalent to `gf2x.c` from PQClean. The KEM uses
-Karatsuba by default; benchmarks show roughly 2.9x speedup over naive for
-n=17669, though the Python interpreter overhead limits the gain compared to
-the C reference.
+**Polynomial multiplication.** The dominant operation in HQC is multiplication
+in F₂[x]/(xⁿ − 1). Two algorithms are provided: a naive O(n²) implementation
+for readability and cross-validation, and a Karatsuba O(n^1.58) implementation
+equivalent to `gf2x.c` from PQClean. The KEM uses Karatsuba by default;
+benchmarks show roughly 2.9× speedup over naive for n = 17669, though Python
+interpreter overhead limits the gain compared to the C reference.
 
-**RMRS decoder.** The concatenated Reed-Muller + Reed-Solomon decoder is
-taken from the HQC reference implementation and compiled into a shared
-library (`ref/librmrs.so`). It is called from Python via ctypes. Reimplementing
-it in pure Python would add no algorithmic insight and increase the risk of
-introducing errors in a component used as the ground truth.
+**RMRS decoder.** The concatenated Reed-Muller + Reed-Solomon decoder is taken
+from the HQC reference implementation and compiled as a shared library
+(`ref/librmrs.so`), called from Python via ctypes. Reimplementing it in pure
+Python would add no algorithmic insight and would risk diverging from the
+ground-truth decoder.
 
 **KAT validation.** The implementation reproduces the first 10 vectors of
-the official `PQCkemKAT_2321.rsp` file byte for byte. The KAT framework uses
-a SHAKE256 DRBG (new in the HQC 2025 specification, replacing the AES-256-CTR
-DRBG used in earlier NIST rounds).
+`PQCkemKAT_2321.rsp` byte for byte. The KAT framework uses a SHAKE256 DRBG,
+introduced in the HQC 2025 specification to replace the AES-256-CTR DRBG from
+earlier NIST rounds.
 
 **Constant-time measures.** Ciphertext comparison in Decaps uses a
 byte-by-byte XOR accumulator (`_ct_equal`) to avoid short-circuit leakage.
-Both the real key K and the rejection key K_bar are always computed before
-the branch. Full constant-time guarantees are not achievable in CPython due
-to interpreter-level timing variations.
+Both the real key K and the rejection key K̄ are always computed before
+branching. Full constant-time guarantees are not achievable in CPython due to
+interpreter-level timing variations.
 
 ---
 
 ## References
 
-- HQC specification (2025): https://pqc-hqc.org
-- PQClean reference implementation: https://github.com/PQClean/PQClean
-- NIST IR 8545 (PQC standardization report): https://doi.org/10.6028/NIST.IR.8545
+- HQC specification (2025): <https://pqc-hqc.org>
+- PQClean reference implementation: <https://github.com/PQClean/PQClean>
+- NIST IR 8545 (PQC standardization report): <https://doi.org/10.6028/NIST.IR.8545>
