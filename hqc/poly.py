@@ -1,8 +1,8 @@
-def get_bit(v: bytearray, i: int) -> int:
+def get_bit(v: bytearray, i: int) -> int: # Return the bit at position i from the bytearray v as an integer (0 or 1).
     return (v[i // 8] >> (i % 8)) & 1
 
 
-def set_bit(v: bytearray, i: int) -> None:
+def set_bit(v: bytearray, i: int) -> None: # Marks the bit at position i in the bytearray v to 1.
     v[i // 8] |= 1 << (i % 8)
 
 
@@ -11,7 +11,11 @@ def poly_add(a: bytearray, b: bytearray) -> bytearray:
     # truncation from zip when an operand is shorter than expected.
     if len(a) != len(b):
         raise ValueError(f"poly_add: length mismatch ({len(a)} != {len(b)})")
-    return bytearray(x ^ y for x, y in zip(a, b))
+    return bytearray(x ^ y for x, y in zip(a, b)) # The ^ operator computes the bitwise XOR of two integers in Python,
+                                                  # and when applied to bytes objects, it XORs each pair of corresponding bytes.
+                                                  # The zip function pairs up corresponding bytes from a and b, and the generator
+                                                  # expression computes the XOR for each pair, resulting in a new bytearray that
+                                                  # is the sum of the two polynomials.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -78,22 +82,24 @@ def _karatsuba(a: int, b: int, size: int) -> int:
     a_lo, a_hi = a & mask_l, a >> bits_l
     b_lo, b_hi = b & mask_l, b >> bits_l
 
-    lo  = _karatsuba(a_lo,        b_lo,        size_l)
-    hi  = _karatsuba(a_hi,        b_hi,        size_h)
-    mid = _karatsuba(a_lo ^ a_hi, b_lo ^ b_hi, size_l)
+    lo  = _karatsuba(a_lo,        b_lo,        size_l)  # a_lo * b_lo
+    hi  = _karatsuba(a_hi,        b_hi,        size_h)  # a_hi * b_hi
+    mid = _karatsuba(a_lo ^ a_hi, b_lo ^ b_hi, size_l)  # (a_lo+a_hi)(b_lo+b_hi); the +/- of Karatsuba is XOR in F2
 
+    # Recombine: result = lo + (mid - lo - hi)*x^bits_l + hi*x^(2*bits_l), with
+    # every +/- being XOR in F2. The middle term reuses lo and hi to save one multiply.
     return lo ^ ((mid ^ lo ^ hi) << bits_l) ^ (hi << (2 * bits_l))
 
 
 def _reduce_mod(x: int, n: int) -> int:
     """Reduce x mod (x^n - 1) in F2[x]: fold coefficients at positions >= n
     back by adding them at position (pos mod n)."""
-    result = x & ((1 << n) - 1)
-    x >>= n
+    result = x & ((1 << n) - 1)  # the low n coefficients stay where they are
+    x >>= n                       # everything from x^n upward must be folded back
     pos = 0
     while x:
         if x & 1:
-            result ^= 1 << (pos % n)
+            result ^= 1 << (pos % n)  # x^(n+pos) == x^(pos mod n) since x^n == 1, so XOR it in there
         x >>= 1
         pos += 1
     return result
