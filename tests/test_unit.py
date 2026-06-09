@@ -1,3 +1,28 @@
+"""
+Component-level unit tests for the HQC building blocks.
+
+Where test_kat.py proves the whole KEM byte-for-byte against the official
+vectors, this file isolates each piece and checks the property it must satisfy,
+so that a failure points directly at the broken component:
+
+  * Sampling            -- fixed-weight vectors have exactly omega ones and are
+                           reproducible from a fixed XOF seed.
+  * Polynomial arith.   -- multiplication in F2[x]/(x^n - 1) on hand-checkable
+                           cases, plus naive-vs-Karatsuba cross-validation.
+  * Hash functions      -- output lengths and domain separation of G/H/I/J.
+  * RMRS codec          -- decode(encode(m)) == m (round-trip of the concatenated
+                           Reed-Muller + Reed-Solomon code).
+  * Full KEM cycle      -- keygen -> encaps -> decaps agreement, and the implicit
+                           rejection path on a corrupted ciphertext.
+  * Structural tests    -- the algebraic relations behind the hardness assumptions
+                           (2-QCSD in keygen, 3-DQCSD-PT in encrypt) actually hold.
+
+Tests marked @pytest.mark.slow run on the real HQC-1 parameters (n = 17669) and
+take a few seconds each; `make test` runs everything, while `pytest -m "not slow"`
+skips them for a quick check and `pytest -m slow` runs only them (marker declared
+in pytest.ini).
+"""
+
 import pytest
 from hqc.params import HQC1
 from hqc.hash import G, H, I, J, XOF
@@ -6,6 +31,7 @@ from hqc.poly import poly_mul, poly_mul_karatsuba, poly_add, poly_truncate, get_
 
 
 def count_ones(v: bytearray, n: int) -> int:
+    # Hamming weight: count the set bits among the first n positions of v.
     return sum(get_bit(v, i) for i in range(n))
 
 
@@ -38,10 +64,11 @@ def test_poly_mul_small():
     = x^0 + x^1 + x^3 + x^4
     """
     n = 7
-    a = bytearray(1); a[0] = 0b00000101   # bits 0 and 2
-    b = bytearray(1); b[0] = 0b00000111   # bits 0, 1 and 2
+    # Polynomials are stored little-endian by bit: bit i is the coefficient of x^i.
+    a = bytearray(1); a[0] = 0b00000101   # bits 0 and 2  -> x^0 + x^2
+    b = bytearray(1); b[0] = 0b00000111   # bits 0, 1, 2  -> x^0 + x^1 + x^2
     res = poly_mul(a, b, n)
-    expected_bits = {0, 1, 3, 4}
+    expected_bits = {0, 1, 3, 4}          # worked out by hand in the docstring above
     for i in range(n):
         assert get_bit(res, i) == (1 if i in expected_bits else 0)
 
@@ -50,12 +77,12 @@ def test_poly_mul_identity():
     """Multiplying by the unit polynomial 1 is the identity."""
     n = 31
     import hashlib
-    raw = bytearray(hashlib.sha3_256(b'test').digest()[:4])
-    raw[-1] &= (1 << (n % 8)) - 1
+    raw = bytearray(hashlib.sha3_256(b'test').digest()[:4]) # 4 bytes = 32 bits of pseudorandom data
+    raw[-1] &= (1 << (n % 8)) - 1   # clear the high bit so raw has at most n=31 coefficients
     uno = bytearray((n + 7) // 8)
-    uno[0] = 0x01
+    uno[0] = 0x01                   # the unit polynomial: 1 (only the x^0 coefficient)
     resultado = poly_mul(raw, uno, n)
-    assert resultado == bytearray(raw[:len(resultado)])
+    assert resultado == bytearray(raw[:len(resultado)]) # raw * 1 == raw
 
 
 def test_poly_truncate():
@@ -180,7 +207,12 @@ def test_end_to_end():
 
 @pytest.mark.slow
 def test_decaps_rejects_corrupt_ct():
-    """A corrupted ciphertext causes decaps to return K_bar instead of K'."""
+    """A corrupted ciphertext causes decaps to return K_bar instead of K'.
+
+    This exercises the implicit rejection of the Fujisaki-Okamoto transform:
+    instead of signalling failure, decaps re-encrypts and, on mismatch, returns
+    a pseudorandom key derived from the secret sigma. The attacker cannot tell
+    rejection from success, which is what gives HQC its IND-CCA2 security."""
     from hqc.kem import _kem_keygen_det, _kem_encaps_det, kem_decaps
     import os
     seed_kem = os.urandom(HQC1.seed_bytes)
@@ -190,7 +222,7 @@ def test_decaps_rejects_corrupt_ct():
     ek, dk      = _kem_keygen_det(seed_kem, HQC1)
     K_valid, ct = _kem_encaps_det(ek, m, salt, HQC1)
 
-    ct_corrupt = bytes([ct[0] ^ 0xFF]) + ct[1:]
+    ct_corrupt = bytes([ct[0] ^ 0xFF]) + ct[1:]    # flip all 8 bits of the first ciphertext byte
     assert kem_decaps(dk, ct_corrupt, HQC1) != K_valid
 
 
@@ -200,31 +232,49 @@ def test_decaps_rejects_corrupt_ct():
 
 @pytest.mark.slow
 def test_poly_mul_equivalence_hqc1():
-    """Naive and Karatsuba produce identical results on real HQC-1 vectors."""
+    """Naive and Karatsuba produce identical results on real HQC-1 vectors.
+
+    The naive O(n^2) routine is the easy-to-audit ground truth; this test pins
+    the optimised Karatsuba path to it at the production size (n = 17669), using
+    a dense h and a sparse fixed-weight y like the real key material."""
     import os
-    h = sample_vect(HQC1.n, XOF(os.urandom(32)))
-    y = sample_fixed_weight_keygen(HQC1.n, HQC1.omega, XOF(os.urandom(32)))
+    h = sample_vect(HQC1.n, XOF(os.urandom(32)))                          # dense random operand
+    y = sample_fixed_weight_keygen(HQC1.n, HQC1.omega, XOF(os.urandom(32))) # sparse, weight omega
     assert poly_mul(h, y, HQC1.n) == poly_mul_karatsuba(h, y, HQC1.n)
 
 
 # ---------------------------------------------------------------------------
 # Structural tests: 2-QCSD and 3-DQCSD-PT instances
+#
+# These do not just check that the code runs: they assert that the public data
+# produced by keygen/encrypt is exactly the syndrome-decoding instance whose
+# hardness HQC's security reduces to. If these relations held only by accident,
+# the published key/ciphertext would not actually hide the secret.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.slow
 def test_pke_keygen_constructs_2qcsd_instance():
-    """Keygen builds a valid 2-QCSD instance: s == x + h*y."""
+    """Keygen builds a valid 2-QCSD instance: s == x + h*y.
+
+    The public key is (h, s) with x, y secret low-weight vectors. Recovering
+    (x, y) from (h, s) is the 2-Quasi-Cyclic Syndrome Decoding problem; here we
+    just confirm s was computed from that relation."""
     from hqc.pke import _pke_keygen_internal
     import os
     seed_pke = os.urandom(HQC1.seed_bytes)
     ek, _dk_seed, x, y, h, s = _pke_keygen_internal(seed_pke, HQC1)
-    assert s == poly_add(x, poly_mul_karatsuba(h, y, HQC1.n))
+    assert s == poly_add(x, poly_mul_karatsuba(h, y, HQC1.n)) # s = x + h*y over F2[x]/(x^n - 1)
 
 
 @pytest.mark.slow
 def test_pke_encrypt_constructs_3dqcsd_pt_instance():
     """Encrypt builds a valid 3-DQCSD-PT instance: u == r1 + h*r2 and
-    v - Encode(m) == Truncate(s*r2 + e)."""
+    v - Encode(m) == Truncate(s*r2 + e).
+
+    The ciphertext (u, v) masks the encoded message with the secret low-weight
+    randomness (r1, r2, e). Distinguishing it from random is the 3-Decisional
+    Quasi-Cyclic Syndrome Decoding problem with Parity Test. We verify both
+    halves of the ciphertext match their defining equations."""
     from hqc.pke import _pke_keygen_internal, _pke_encrypt_internal
     from hqc.rmrs import encode
     import os
@@ -234,13 +284,16 @@ def test_pke_encrypt_constructs_3dqcsd_pt_instance():
     theta = os.urandom(HQC1.seed_bytes)
     u, v, r1, r2, e = _pke_encrypt_internal(ek, m, theta, HQC1)
 
+    # First half of the ciphertext: u = r1 + h*r2 (same QCSD shape as the key).
     assert u == poly_add(r1, poly_mul_karatsuba(h, r2, HQC1.n))
 
+    # Second half: v = Truncate(s*r2 + e) + Encode(m), so removing the encoded
+    # message must leave exactly the truncated s*r2 + e term.
     encoded_m = bytearray(encode(m, HQC1.n1n2_bytes))
-    lhs = poly_add(bytearray(v), encoded_m)
+    lhs = poly_add(bytearray(v), encoded_m)   # v - Encode(m); subtraction is XOR in F2
 
     sr2_plus_e = poly_add(poly_mul_karatsuba(s, r2, HQC1.n), e)
-    rhs_full = poly_truncate(sr2_plus_e, HQC1.n, HQC1.n1 * HQC1.n2)
+    rhs_full = poly_truncate(sr2_plus_e, HQC1.n, HQC1.n1 * HQC1.n2) # keep only the first n1*n2 bits
     rhs = bytearray(rhs_full[:HQC1.n1n2_bytes])
 
     assert lhs == rhs
