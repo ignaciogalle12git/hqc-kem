@@ -15,7 +15,18 @@ from .pke import pke_keygen, pke_encrypt, pke_decrypt
 
 
 def kem_keygen(p: HQCParams) -> tuple[bytes, bytes]:
-    """Return (ek, dk)."""
+    """Generate a KEM key pair.
+
+    Parameters
+    ----------
+    p : HQCParams
+        HQC parameter set (e.g. HQC1).
+
+    Returns
+    -------
+    tuple[bytes, bytes]
+        (ek, dk): public encapsulation key and secret decapsulation key.
+    """
     seed_kem = os.urandom(p.seed_bytes)
 
     # Expand the single KEM seed into the PKE seed and the rejection secret sigma.
@@ -33,7 +44,20 @@ def kem_keygen(p: HQCParams) -> tuple[bytes, bytes]:
 
 
 def kem_encaps(ek: bytes, p: HQCParams) -> tuple[bytes, bytes]:
-    """Return (K, ct)."""
+    """Encapsulate a fresh shared secret under the public key.
+
+    Parameters
+    ----------
+    ek : bytes
+        Public encapsulation key from kem_keygen.
+    p : HQCParams
+        HQC parameter set (e.g. HQC1).
+
+    Returns
+    -------
+    tuple[bytes, bytes]
+        (K, ct): the shared secret K and the ciphertext ct (c_pke || salt).
+    """
     m    = os.urandom(p.k // 8)     # the random "message" that seeds the shared secret
     salt = os.urandom(p.salt_bytes) # extra salt hashed into G, part of the 2025 spec
 
@@ -47,7 +71,23 @@ def kem_encaps(ek: bytes, p: HQCParams) -> tuple[bytes, bytes]:
 
 
 def kem_decaps(dk: bytes, ct: bytes, p: HQCParams) -> bytes:
-    """Return the shared secret K."""
+    """Decapsulate the shared secret from a ciphertext.
+
+    Parameters
+    ----------
+    dk : bytes
+        Secret decapsulation key from kem_keygen.
+    ct : bytes
+        Ciphertext produced by kem_encaps.
+    p : HQCParams
+        HQC parameter set (e.g. HQC1).
+
+    Returns
+    -------
+    bytes
+        The shared secret K, or the rejection key K_bar on an invalid ct
+        (implicit rejection of the FO transform).
+    """
     # Parse dk back into the four parts packed by kem_keygen.
     ek      = dk[:p.ek_bytes]
     dk_pke  = dk[p.ek_bytes : p.ek_bytes + p.seed_bytes]
