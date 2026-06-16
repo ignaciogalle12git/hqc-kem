@@ -20,7 +20,7 @@ bench-kem-full: ref/librmrs.so
 	python3 bench_kem.py --full
 
 test: ref/librmrs.so
-	python3 -m pytest tests/ -v
+	KAT_N=100 python3 -m pytest tests/ -v
 
 clean:
 	rm -f ref/librmrs.so

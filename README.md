@@ -95,7 +95,7 @@ from the HQC reference implementation and compiled as a shared library
 Python would add no algorithmic insight and would risk diverging from the
 ground-truth decoder.
 
-**KAT validation.** The implementation reproduces the first 10 vectors of
+**KAT validation.** The implementation reproduces all 100 vectors of
 `PQCkemKAT_2321.rsp` byte for byte. The KAT framework uses a SHAKE256 DRBG,
 introduced in the HQC 2025 specification to replace the AES-256-CTR DRBG from
 earlier NIST rounds.
