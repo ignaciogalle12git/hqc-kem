@@ -3,7 +3,7 @@ Byte-for-byte validation against the official HQC-1 KAT vectors.
 
 KAT = Known Answer Test: the NIST submission ships a file of fixed (seed -> pk,
 sk, ct, ss) tuples produced by the reference C implementation. Reproducing every
-byte of those tuples is the strongest correctness check available -- it proves
+byte of those tuples is the strongest correctness check available, it proves
 this Python port is bit-compatible with the reference, not merely self-consistent.
 This is why the KAT tests use the deterministic *_det entry points (keygen and
 encaps seeded explicitly) rather than the randomised public API: the randomness
@@ -34,36 +34,39 @@ _KAT_N = int(os.environ.get('KAT_N', '10'))
 
 
 def parse_kat(filepath: str) -> list[dict]:
-    """Parse the NIST count/seed/pk/sk/ct/ss response format.
+    """Read the NIST .rsp test-vector file into a list of dictionaries.
 
-    The .rsp file is a flat list of `key = value` lines grouped into blocks, one
-    block per vector, separated by blank lines, e.g.:
+    The file is plain text: `key = value` lines grouped into blocks, one block
+    per test vector, with a blank line between blocks. Each block has 6 fields:
 
-        count = 0
-        seed = 061550...
-        pk = 64AB...
-        sk = 64AB...
-        ct = 1F2E...
-        ss = 9C0D...
+        count = 0          <- vector number (decimal)
+        seed = 061550...   <- 48-byte DRBG seed (hex)
+        pk = 64AB...        <- expected public key  (hex)
+        sk = 64AB...        <- expected secret key  (hex)
+        ct = 1F2E...        <- expected ciphertext  (hex)
+        ss = 9C0D...        <- expected shared secret (hex)
 
-    `count` is decimal; every other value is hex and decoded to bytes."""
-    vectors = []
-    current = {}
+    This function turns each block into a dict like
+        {'count': 0, 'seed': b'...', 'pk': b'...', ...}
+    and returns the list of all such dicts. `count` is kept as an int; every
+    other field is hex text and is decoded into raw bytes ready to compare
+    against what the implementation produces."""
+    vectors = []          # one dict per parsed block
+    current = {}          # the block currently being read
     with open(filepath) as f:
         for line in f:
             line = line.strip()
-            if not line or line.startswith('#'):   # skip blank lines and the header comment
+            if not line or line.startswith('#'):    # skip blank lines and the header comment
                 continue
-            if '=' in line:
-                key, val = line.split('=', 1)       # split only on the first '=' (hex never contains it)
+            if '=' in line:                         # data lines look like "key = value"
+                key, val = line.split('=', 1)       # split on the first '=' only
                 key = key.strip()
                 val = val.strip()
-                if key == 'count':
+                if key == 'count':                  # count is decimal; every other field is hex
                     current[key] = int(val)
                 else:
                     current[key] = bytes.fromhex(val)
-            # ss is the last field of each block, so seeing it (with all 6 keys
-            # present: count/seed/pk/sk/ct/ss) means the current vector is complete.
+            # a block ends at 'ss'; with all 6 keys present the vector is complete
             if 'ss' in current and len(current) >= 6:
                 vectors.append(current)
                 current = {}
