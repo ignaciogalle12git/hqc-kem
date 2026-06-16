@@ -16,7 +16,7 @@ HQC implementation (v5, 2025):
 import ctypes
 import os
 
-# Locate the shared library next to the package, under ref/ (built by the Makefile).
+# Locate the shared library
 _lib_path = os.path.join(os.path.dirname(__file__), '..', 'ref', 'librmrs.so')
 _lib_path = os.path.abspath(_lib_path)
 
@@ -31,6 +31,7 @@ except OSError:
     )
 
 # Declare the C signatures so ctypes marshals arguments correctly.
+
 # Function signatures from rmrs_wrapper.c:
 # void hqc_encode(uint8_t *cdw, const uint8_t *msg)
 # int  hqc_decode(uint8_t *msg, const uint8_t *cdw)
@@ -42,9 +43,9 @@ _rmrs.hqc_decode.restype  = ctypes.c_int   # 0 on success, non-zero on decode fa
 
 def encode(m: bytes, n1n2_bytes: int) -> bytes:
     """Encode m (k/8 bytes) into a codeword of n1*n2 bits (n1n2_bytes)."""
-    codeword = ctypes.create_string_buffer(n1n2_bytes) # output buffer the C writes into
-    _rmrs.hqc_encode(codeword, m)
-    return bytes(codeword)
+    codeword = ctypes.create_string_buffer(n1n2_bytes) # Create a mutable buffer for the codeword of the specified size (n1n2_bytes).
+    _rmrs.hqc_encode(codeword, m)                      # Call the C function hqc_encode to encode the message m into the codeword buffer. The C function modifies the codeword buffer in place.
+    return bytes(codeword)                             # Return the codeword as a bytes object, which is immutable and suitable for further processing in Python.
 
 
 def decode(codeword: bytes, k_bytes: int) -> bytes | None:

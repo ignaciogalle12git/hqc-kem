@@ -18,10 +18,19 @@ from .poly import poly_add, poly_mul_karatsuba as poly_mul, poly_mul as poly_mul
 
 
 def pke_keygen(seed_pke: bytes, p: HQCParams) -> tuple[bytes, bytes]:
-    """
-    Return (ek, dk_pke).
-    ek  = seed_ek (32 B) || s (n_bytes)
-    dk  = seed_dk (32 B)
+    """Generate a PKE key pair.
+
+    Parameters
+    ----------
+    seed_pke : bytes
+        32-byte seed; expands into the secret (x, y) and public h.
+    p : HQCParams
+        HQC parameter set (e.g. HQC1).
+
+    Returns
+    -------
+    tuple[bytes, bytes]
+        (ek, dk_pke): ek = seed_ek (32 B) || s (n_bytes); dk_pke = seed_dk (32 B).
     """
     ek, dk, _x, _y, _h, _s = _pke_keygen_internal(seed_pke, p)
     return ek, dk
@@ -51,13 +60,30 @@ def _pke_keygen_internal(seed_pke: bytes, p: HQCParams):
 
     # Public key stores seed_ek (so h can be regenerated) plus s; secret key is
     # just seed_dk (x, y are re-sampled from it on demand).
-    ek = seed_ek + bytes(s)
+    ek = seed_ek + bytes(s) # ek = seed_ek (32 B) || s (n_bytes) -> Conatenated
     dk = seed_dk
     return ek, dk, x, y, h, s
 
 
 def pke_encrypt(ek: bytes, m: bytes, theta: bytes, p: HQCParams) -> bytes:
-    """Return c_pke = u (n_bytes) || v (n1n2_bytes)."""
+    """Encrypt a message under the PKE public key.
+
+    Parameters
+    ----------
+    ek : bytes
+        Public key (seed_ek || s) from pke_keygen.
+    m : bytes
+        Message to encrypt, k/8 bytes.
+    theta : bytes
+        32-byte seed for the encryption randomness (r1, r2, e).
+    p : HQCParams
+        HQC parameter set (e.g. HQC1).
+
+    Returns
+    -------
+    bytes
+        c_pke = u (n_bytes) || v (n1n2_bytes).
+    """
     u, v, _r1, _r2, _e = _pke_encrypt_internal(ek, m, theta, p)
     return bytes(u) + bytes(v)
 
@@ -102,7 +128,22 @@ def _pke_encrypt_internal(ek: bytes, m: bytes, theta: bytes, p: HQCParams):
 
 
 def pke_decrypt(dk: bytes, c_pke: bytes, p: HQCParams) -> bytes | None:
-    """Return the recovered message, or None if the decoder fails."""
+    """Decrypt a PKE ciphertext.
+
+    Parameters
+    ----------
+    dk : bytes
+        Secret key (seed_dk) from pke_keygen.
+    c_pke : bytes
+        Ciphertext u || v from pke_encrypt.
+    p : HQCParams
+        HQC parameter set (e.g. HQC1).
+
+    Returns
+    -------
+    bytes or None
+        The recovered message (k/8 bytes), or None if the decoder fails.
+    """
     from .rmrs import decode as rmrs_decode
 
     # Re-sample the secret y from seed_dk. y is the first vector drawn in keygen,

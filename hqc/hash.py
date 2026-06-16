@@ -18,24 +18,68 @@ J_DOMAIN   = bytes([0x03])   # SHA3-256(H(ek) || sigma || u || v || salt || 0x03
 
 
 def G(data: bytes) -> tuple[bytes, bytes]:
-    """SHA3-512(data || G_DOMAIN) -> (K: 32 bytes, theta: 32 bytes)"""
+    """SHA3-512(data || G_DOMAIN) -> (K: 32 bytes, theta: 32 bytes).
+
+    Parameters
+    ----------
+    data : bytes
+        Bytes to hash; in the KEM this is H(ek) || m || salt.
+
+    Returns
+    -------
+    tuple[bytes, bytes]
+        (K, theta): K is the shared-secret seed, theta the encryption randomness.
+    """
     digest = hashlib.sha3_512(data + G_DOMAIN).digest() # The + symbol concatenates bytes objects in Python.
     return digest[:32], digest[32:] # Split the 64-byte digest into two halves: first 32 -> K, last 32 -> theta.
 
 
 def H(data: bytes) -> bytes:
-    """SHA3-256(data || H_DOMAIN) -> 32 bytes"""
+    """SHA3-256(data || H_DOMAIN) -> 32 bytes.
+
+    Parameters
+    ----------
+    data : bytes
+        Bytes to hash; in the KEM this is the public key ek.
+
+    Returns
+    -------
+    bytes
+        32-byte digest.
+    """
     return hashlib.sha3_256(data + H_DOMAIN).digest()
 
 
 def I(data: bytes) -> tuple[bytes, bytes]:
-    """SHA3-512(data || I_DOMAIN) -> (seed_dk: 32 bytes, seed_ek: 32 bytes)"""
+    """SHA3-512(data || I_DOMAIN) -> (seed_dk: 32 bytes, seed_ek: 32 bytes).
+
+    Parameters
+    ----------
+    data : bytes
+        32-byte PKE seed to expand.
+
+    Returns
+    -------
+    tuple[bytes, bytes]
+        (seed_dk, seed_ek): seeds for the secret vectors (x, y) and for public h.
+    """
     digest = hashlib.sha3_512(data + I_DOMAIN).digest()
     return digest[:32], digest[32:] # 64-byte digest split into two seeds: first 32 -> seed_dk, last 32 -> seed_ek.
 
 
 def J(data: bytes) -> bytes:
-    """SHA3-256(data || J_DOMAIN) -> 32 bytes"""
+    """SHA3-256(data || J_DOMAIN) -> 32 bytes.
+
+    Parameters
+    ----------
+    data : bytes
+        Bytes to hash; in the KEM this is H(ek) || sigma || ct.
+
+    Returns
+    -------
+    bytes
+        32-byte rejection key K_bar.
+    """
     return hashlib.sha3_256(data + J_DOMAIN).digest()
 
 
@@ -43,11 +87,24 @@ class XOF:
     """SHAKE256 stream generator seeded with a fixed key."""
 
     def __init__(self, seed: bytes):
+        """Seed the SHAKE256 stream.
+
+        Parameters
+        ----------
+        seed : bytes
+            Key bytes; the stream is SHAKE256(seed || XOF_DOMAIN).
+        """
         self._shake = hashlib.shake_256(seed + XOF_DOMAIN)
         self._consumed = 0
 
     def get_bytes(self, n: int) -> bytes:
-        """Return the NEXT n bytes from the pseudorandom stream."""
+        """Return the NEXT n bytes from the pseudorandom stream.
+
+        Parameters
+        ----------
+        n : int
+            Number of bytes to squeeze from the stream.
+        """
         # hashlib's shake has no incremental squeeze, so we re-derive the whole
         # output up to `needed` bytes each call and slice off the part not yet
         # consumed. `_consumed` tracks the stream position to emulate xof_get_bytes.

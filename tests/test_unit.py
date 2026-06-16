@@ -5,16 +5,16 @@ Where test_kat.py proves the whole KEM byte-for-byte against the official
 vectors, this file isolates each piece and checks the property it must satisfy,
 so that a failure points directly at the broken component:
 
-  * Sampling            -- fixed-weight vectors have exactly omega ones and are
+  * Sampling            --> fixed-weight vectors have exactly omega ones and are
                            reproducible from a fixed XOF seed.
-  * Polynomial arith.   -- multiplication in F2[x]/(x^n - 1) on hand-checkable
+  * Polynomial arith.   --> multiplication in F2[x]/(x^n - 1) on hand-checkable
                            cases, plus naive-vs-Karatsuba cross-validation.
-  * Hash functions      -- output lengths and domain separation of G/H/I/J.
-  * RMRS codec          -- decode(encode(m)) == m (round-trip of the concatenated
+  * Hash functions      --> output lengths and domain separation of G/H/I/J.
+  * RMRS codec          --> decode(encode(m)) == m (round-trip of the concatenated
                            Reed-Muller + Reed-Solomon code).
-  * Full KEM cycle      -- keygen -> encaps -> decaps agreement, and the implicit
+  * Full KEM cycle      --> keygen -> encaps -> decaps agreement, and the implicit
                            rejection path on a corrupted ciphertext.
-  * Structural tests    -- the algebraic relations behind the hardness assumptions
+  * Structural tests    --> the algebraic relations behind the hardness assumptions
                            (2-QCSD in keygen, 3-DQCSD-PT in encrypt) actually hold.
 
 Tests marked @pytest.mark.slow run on the real HQC-1 parameters (n = 17669) and
@@ -41,7 +41,7 @@ def count_ones(v: bytearray, n: int) -> int:
 
 def test_sample_fixed_weight_exact():
     """Sampled vector has exactly omega ones."""
-    xof = XOF(b'\x00' * 32)
+    xof = XOF(b'\x00' * 32)     # deterministic seed for reproducibility
     v = sample_fixed_weight_keygen(HQC1.n, HQC1.omega, xof)
     assert count_ones(v, HQC1.n) == HQC1.omega
 
@@ -139,7 +139,7 @@ def test_G_deterministic():
 
 def test_I_splits_correctly():
     """I returns exactly 32+32 bytes with seed_dk != seed_ek."""
-    seed_dk, seed_ek = I(b'\x42' * 32)
+    seed_dk, seed_ek = I(b'\x42' * 32) #
     assert len(seed_dk) == 32
     assert len(seed_ek) == 32
     assert seed_dk != seed_ek
@@ -222,7 +222,7 @@ def test_decaps_rejects_corrupt_ct():
     ek, dk      = _kem_keygen_det(seed_kem, HQC1)
     K_valid, ct = _kem_encaps_det(ek, m, salt, HQC1)
 
-    ct_corrupt = bytes([ct[0] ^ 0xFF]) + ct[1:]    # flip all 8 bits of the first ciphertext byte
+    ct_corrupt = bytes([ct[0] ^ 0xFF]) + ct[1:]    # flip the first byte of the ciphertext to corrupt it
     assert kem_decaps(dk, ct_corrupt, HQC1) != K_valid
 
 
@@ -278,8 +278,10 @@ def test_pke_encrypt_constructs_3dqcsd_pt_instance():
     from hqc.pke import _pke_keygen_internal, _pke_encrypt_internal
     from hqc.rmrs import encode
     import os
+
     seed_pke = os.urandom(HQC1.seed_bytes)
     ek, _dk_seed, _x, _y, h, s = _pke_keygen_internal(seed_pke, HQC1)
+
     m = os.urandom(HQC1.k // 8)
     theta = os.urandom(HQC1.seed_bytes)
     u, v, r1, r2, e = _pke_encrypt_internal(ek, m, theta, HQC1)
@@ -288,12 +290,17 @@ def test_pke_encrypt_constructs_3dqcsd_pt_instance():
     assert u == poly_add(r1, poly_mul_karatsuba(h, r2, HQC1.n))
 
     # Second half: v = Truncate(s*r2 + e) + Encode(m), so removing the encoded
-    # message must leave exactly the truncated s*r2 + e term.
+
+    # message must leave exactly the truncated s*r2 + e term. We obtain that
+    # noise two independent ways and check they match.
     encoded_m = bytearray(encode(m, HQC1.n1n2_bytes))
-    lhs = poly_add(bytearray(v), encoded_m)   # v - Encode(m); subtraction is XOR in F2
 
-    sr2_plus_e = poly_add(poly_mul_karatsuba(s, r2, HQC1.n), e)
-    rhs_full = poly_truncate(sr2_plus_e, HQC1.n, HQC1.n1 * HQC1.n2) # keep only the first n1*n2 bits
-    rhs = bytearray(rhs_full[:HQC1.n1n2_bytes])
+    # Way 1: peel Encode(m) off the real ciphertext v (subtraction is XOR in F2).
+    noise_from_v = poly_add(bytearray(v), encoded_m)
 
-    assert lhs == rhs
+    # Way 2: rebuild the noise from its definition, Truncate(s*r2 + e).
+    sr2_plus_e      = poly_add(poly_mul_karatsuba(s, r2, HQC1.n), e)
+    noise_truncated = poly_truncate(sr2_plus_e, HQC1.n, HQC1.n1 * HQC1.n2)  # keep first n1*n2 bits
+    noise_expected  = bytearray(noise_truncated[:HQC1.n1n2_bytes])          # trim to n1n2_bytes
+
+    assert noise_from_v == noise_expected
