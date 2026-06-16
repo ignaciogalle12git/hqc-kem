@@ -30,7 +30,7 @@ from hqc.drbg import NIST_DRBG
 KAT_FILE = os.path.join(os.path.dirname(__file__), '..', 'kat', 'PQCkemKAT_2321.rsp')
 
 # Number of vectors to test. Override with: KAT_N=5 pytest ...
-_KAT_N = int(os.environ.get('KAT_N', '10'))
+_KAT_N = int(os.environ.get('KAT_N', '100'))
 
 
 def parse_kat(filepath: str) -> list[dict]:
