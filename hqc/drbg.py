@@ -1,11 +1,18 @@
 """
-SHAKE256-based PRNG from the HQC 2025 KAT framework.
+Deterministic pseudorandom byte generator (DRBG) for the KAT tests.
 
-Re-implementation of prng_init / prng_get_bytes from symmetric.c.
-The PRNG absorbs the 48-byte seed plus domain byte 0x00 into a SHAKE256
-context and produces bytes via sequential squeezing.
+In production, HQC draws true randomness from os.urandom (the seed in keygen,
+and m + salt in encaps). To reproduce the official NIST test vectors byte for
+byte, that randomness must instead be deterministic: each KAT case ships a
+48-byte seed, and this class stretches it into the exact same byte stream the
+reference implementation produced. Same seed in -> same bytes out, always.
 
-Reference: src/common/symmetric.c, prng_init / prng_get_bytes
+It works like the XOF in hash.py: the 48-byte seed plus the PRNG domain byte
+0x00 are fed into SHAKE256, and randombytes() squeezes successive chunks of
+that stream, tracking how many bytes have already been handed out.
+
+Re-implements prng_init / prng_get_bytes from src/common/symmetric.c
+(HQC reference, v5 2025).
 """
 
 import hashlib
