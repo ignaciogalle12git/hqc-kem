@@ -2,8 +2,8 @@
 Benchmark and correctness check for the two polynomial multiplication algorithms.
 
 Usage:
-    python bench_poly_mul.py          # quick benchmark (1 sample)
-    python bench_poly_mul.py --full   # statistical benchmark (5 rounds x 3 reps)
+    python3 bench_poly_mul.py          # quick benchmark (1 sample)
+    python3 bench_poly_mul.py --full   # statistical benchmark (5 rounds x 3 reps)
 
 Algorithms compared:
   naive      poly_mul()           O(n^2)    -- readable, slow
