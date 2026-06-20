@@ -2,8 +2,8 @@
 Benchmark for the three HQC-1 KEM operations: KeyGen, Encaps, Decaps.
 
 Usage:
-    python bench_kem.py             # quick benchmark  (10 iterations)
-    python bench_kem.py --full      # statistical benchmark (50 iterations)
+    python3 bench_kem.py             # quick benchmark  (10 iterations)
+    python3 bench_kem.py --full      # statistical benchmark (50 iterations)
 
 Times are reported in milliseconds (median, min, max). The last column
 converts the measured time to kcycles assuming the processor clock frequency

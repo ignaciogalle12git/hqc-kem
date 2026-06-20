@@ -51,7 +51,7 @@ make ref/librmrs.so
 The only development dependency is pytest:
 
 ```bash
-pip install pytest
+apt install -y python3-pytest
 ```
 
 ---
@@ -61,13 +61,15 @@ pip install pytest
 ### Test suite
 
 ```bash
-make test                  # all tests (unit + KAT)
-pytest tests/ -v           # same, with verbose output
-pytest -m slow             # end-to-end and structural tests only
-KAT_N=3 pytest tests/      # run only the first 3 KAT vectors
+make test                          # unit + integration + all 100 KAT vectors
+pytest tests/ -m "not slow"        # quick check (skips full KEM cycles)
+pytest tests/ -m slow              # end-to-end and structural tests only
+KAT_N=3 pytest tests/test_kat.py   # first 3 KAT vectors, to iterate fast
 ```
 
-KAT tests are skipped automatically when `kat/PQCkemKAT_2321.rsp` is absent.
+`make test` validates all 100 KAT vectors byte for byte by default; lower
+`KAT_N` to run fewer. KAT tests are skipped automatically when
+`kat/PQCkemKAT_2321.rsp` is absent.
 
 ### Benchmarks
 

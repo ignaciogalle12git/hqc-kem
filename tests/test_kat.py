@@ -17,8 +17,8 @@ the same order as the reference:
   16 bytes -> m         (for encaps)
   16 bytes -> salt      (for encaps)
 
-KAT_N caps how many of the vectors are checked (default 10); raise it for a more
-exhaustive run, e.g. `KAT_N=100 pytest tests/test_kat.py`.
+KAT_N caps how many of the vectors are checked (default 100, the full set);
+lower it to iterate faster during development, e.g. `KAT_N=3 pytest tests/test_kat.py`.
 """
 
 import os
